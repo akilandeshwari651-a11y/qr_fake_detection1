@@ -1,0 +1,1 @@
+# qr_fake_detection1
