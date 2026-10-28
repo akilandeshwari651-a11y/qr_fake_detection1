@@ -2,190 +2,138 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import re
 from urllib.parse import urlparse
-import time
-from datetime import datetime
+import re
 
-st.set_page_config(page_title="QR Shield Pro | Cryptathon", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="QR Shield - Fake QR Detector", page_icon="🛡️", layout="centered")
 
-# --- PRO CSS ---
+# --- CLEAN PROFESSIONAL CSS ---
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&display=swap');
-html, body, [class*="css"] { font-family: 'Space Grotesk', sans-serif; }
-.stApp { background: #0A0E1A; color: white; }
-.header { 
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    padding: 30px; border-radius: 20px; border: 1px solid #334155;
-}
-.risk-high { background: linear-gradient(135deg, #dc2626, #991b1b); padding:20px; border-radius:15px; border-left: 5px solid #f87171; }
-.risk-medium { background: linear-gradient(135deg, #d97706, #92400e); padding:20px; border-radius:15px; border-left: 5px solid #fbbf24; }
-.risk-low { background: linear-gradient(135deg, #059669, #065f46); padding:20px; border-radius:15px; border-left: 5px solid #34d399; }
-.feature-box { background: #1e293b; padding:15px; border-radius:12px; border: 1px solid #334155; }
+    .stApp { background: #ffffff; }
+    .main-title { font-size: 32px; font-weight: 700; color: #111; }
+    .sub-text { color: #6B7280; font-size: 16px; }
+    .report-box { background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 12px; padding: 20px; margin-top: 16px; }
+    .safe-box { background: #ECFDF5; border: 1px solid #10B981; border-radius: 12px; padding: 20px; }
+    .danger-box { background: #FEF2F2; border: 1px solid #EF4444; border-radius: 12px; padding: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Header ---
-col_logo, col_title = st.columns([1,5])
-with col_logo:
-    st.markdown("# 🛡️")
-with col_title:
-    st.markdown("# QR Shield Pro")
-    st.caption("AI-Powered Protection for Posters, Events & Payments | CRYPTATHON 2026")
+st.markdown('<div class="main-title">🛡️ QR Shield</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-text">Upload any QR code image. Our system will analyze the link inside and tell you if it is safe or fake.</div>', unsafe_allow_html=True)
+st.divider()
 
-st.markdown("""
-<div class="header">
-<h3>🎯 Problem Solved</h3>
-<p>QR codes on <b>posters, event registrations, and payment pages</b> redirect to malicious sites. 
-Our solution <b>scans → analyzes URL → highlights suspicious patterns → warns BEFORE you visit.</b></p>
-</div>
-""", unsafe_allow_html=True)
-
-st.markdown("---")
-
-# --- Functions ---
-def analyze_url(url):
+# --- ANALYSIS ENGINE ---
+def analyze_link(url):
     issues = []
     score = 0
     parsed = urlparse(url)
-    
-    # 1. Blacklist Check
-    blacklist = ["phishing", "fake", "free-money", "lottery", "bit.ly", "tinyurl", "grabify"]
-    if any(b in url.lower() for b in blacklist):
-        issues.append(f"🚩 Blacklisted keyword detected")
-        score += 40
-    
-    # 2. HTTPS Check
+
+    # Check 1: Protocol
     if parsed.scheme != "https":
-        issues.append("🚩 Not using HTTPS - Data can be stolen")
-        score += 25
-    
-    # 3. Suspicious chars
-    if "@" in url or url.count("-") > 4:
-        issues.append("🚩 Contains @ or excessive hyphens - Phishing trick")
+        issues.append({"title": "Insecure Protocol", "desc": f"Link uses '{parsed.scheme or 'no protocol'}' instead of HTTPS. Your data can be intercepted."})
         score += 30
     
-    # 4. Too many subdomains
+    # Check 2: @ Symbol
+    if "@" in url:
+        issues.append({"title": "Contains '@' Symbol", "desc": "Attackers use '@' to hide the real website. Example: google.com@fake.com looks like Google but goes to fake.com"})
+        score += 40
+
+    # Check 3: Subdomain count
     if url.count(".") > 3:
-        issues.append(f"🚩 Too many subdomains ({url.count('.')}) - Fake domain")
+        issues.append({"title": "Too Many Subdomains", "desc": f"Found {url.count('.')} dots. Fake sites create long domains like secure.payment.google.com.fake-site.com to confuse you."})
         score += 20
-    
-    # 5. IP instead of domain
-    if re.match(r"^(http://|https://)?\d+\.\d+\.\d+\.\d+", url):
-        issues.append("🚩 Uses IP address not domain - Highly suspicious")
+
+    # Check 4: Shorteners
+    if any(x in url.lower() for x in ["bit.ly", "tinyurl", "cutt.ly", "is.gd"]):
+        issues.append({"title": "URL Shortener Detected", "desc": "Shortened links hide the real destination. You cannot see where it goes before clicking."})
+        score += 30
+
+    # Check 5: Suspicious keywords
+    if any(x in url.lower() for x in ["free", "offer", "lottery", "verify", "urgent"]):
+        issues.append({"title": "Suspicious Keywords", "desc": "Words like 'free', 'offer', 'verify' are commonly used in phishing to create urgency."})
+        score += 20
+
+    # Check 6: IP address
+    if re.search(r"\d+\.\d+\.\d+\.\d+", url):
+        issues.append({"title": "IP Address Used", "desc": "Legitimate sites use domain names (like google.com), not IP numbers. Using IP is highly suspicious."})
         score += 50
-    
-    # 6. Length
+
+    # Check 7: Length
     if len(url) > 100:
-        issues.append(f"🚩 URL too long ({len(url)} chars) - Obfuscation")
-        score += 15
-    
-    # 7. Typosquatting (g00gle, paytm-secure)
-    typo = ["g00gle", "paytm-secure", "phonepe-offer", "amaz0n"]
-    if any(t in url.lower() for t in typo):
-        issues.append("🚩 Typosquatting - Fake brand impersonation")
-        score += 35
-        
+        issues.append({"title": "Unusually Long URL", "desc": f"URL is {len(url)} characters long. Attackers make URLs long to hide malicious parts."})
+        score += 10
+
     return min(score, 100), issues
 
-# --- Main Layout ---
-left, right = st.columns([1, 1.2])
+# --- UPLOAD ---
+uploaded = st.file_uploader("Upload QR Code Image", type=["png", "jpg", "jpeg"])
 
-with left:
-    st.markdown("### 📤 Scan QR Code")
-    st.write("Upload QR from Poster / Event / Payment Page")
-    source = st.selectbox("QR Source Type", ["🎨 Poster / Flyer", "🎟️ Event Registration", "💳 Payment Page", "❓ Unknown"])
+if uploaded:
+    image = Image.open(uploaded)
+    st.image(image, caption="Uploaded Image", width=320)
     
-    uploaded = st.file_uploader("Drag & Drop QR Image", type=["png","jpg","jpeg"])
+    # Decode QR
+    cv_image = np.array(image.convert('RGB'))
+    detector = cv2.QRCodeDetector()
+    qr_data, _, _ = detector.detectAndDecode(cv_image)
     
-    if uploaded:
-        img = Image.open(uploaded)
-        st.image(img, width=350, caption=f"Source: {source}")
-        
-        img_cv = np.array(img.convert('RGB'))
-        detector = cv2.QRCodeDetector()
-        data, _, _ = detector.detectAndDecode(img_cv)
-        
-        st.session_state['qr_data'] = data if data else None
+    if not qr_data:
+        st.error("We could not find a QR code in this image. Please upload a clear QR code image.")
     else:
-        st.info("Awaiting QR upload...")
-
-with right:
-    if uploaded and 'qr_data' in st.session_state and st.session_state['qr_data']:
-        data = st.session_state['qr_data']
+        st.markdown("### Analysis Result")
         
-        with st.spinner("🕵️ Deep Scanning URL..."):
-            time.sleep(1.2)
+        # Show decoded text
+        st.markdown('<div class="report-box">', unsafe_allow_html=True)
+        st.write("**Decoded Content:**")
+        st.code(qr_data, language="text")
+        st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown("### 📊 Security Analysis Report")
-        st.markdown(f"**Timestamp:** {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
-        st.code(data, language="bash")
+        risk_score, problems = analyze_link(qr_data)
         
-        risk_score, issues = analyze_url(data)
+        st.write("")
+        st.progress(risk_score/100, text=f"Risk Score: {risk_score} / 100")
         
-        # Highlight Suspicious URL Parts
-        st.markdown("### 🔍 Suspicious Parts Highlighted")
-        highlighted = data
-        for word in ["@", "bit.ly", "free", "http://"]:
-            if word in highlighted:
-                highlighted = highlighted.replace(word, f"**⚠️{word}⚠️**")
-        st.warning(f"Detected URL: {highlighted}")
-        
-        # Risk Card
-        if risk_score >= 60:
+        if risk_score >= 50:
             st.markdown(f"""
-            <div class="risk-high">
-            <h2>🚨 HIGH RISK - DO NOT VISIT</h2>
-            <h1>Risk Score: {risk_score}/100</h1>
-            <p>This QR is FAKE. Visiting may steal your money/data.</p>
+            <div class="danger-box">
+                <h3 style="color:#B91C1C; margin:0;">🚨 Fake QR Code Detected</h3>
+                <p style="margin:8px 0 0 0; color:#7F1D1D;">This QR code is not safe. It contains {len(problems)} suspicious pattern(s). Do not visit this link.</p>
             </div>
             """, unsafe_allow_html=True)
-            st.error("⛔ ACTION BLOCKED: We stopped you from visiting this unsafe link!")
-        elif risk_score >= 30:
-            st.markdown(f"""
-            <div class="risk-medium">
-            <h2>⚠️ MEDIUM RISK - CAUTION</h2>
-            <h1>Risk Score: {risk_score}/100</h1>
-            <p>Proceed only if you trust the source.</p>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("⚠️ I Understand Risk, Visit Anyway"):
-                st.link_button("Open Link (Risky)", data)
+            
+            st.write("")
+            st.write("**Why is this marked as fake?**")
+            for i, p in enumerate(problems, 1):
+                st.markdown(f"""
+                **{i}. {p['title']}**
+                - {p['desc']}
+                """)
+            
+            st.error("⛔ Action: Link has been blocked to protect you.")
+            
         else:
             st.markdown(f"""
-            <div class="risk-low">
-            <h2>✅ SAFE - Verified</h2>
-            <h1>Risk Score: {risk_score}/100</h1>
-            <p>No threats detected. Safe to proceed.</p>
+            <div class="safe-box">
+                <h3 style="color:#065F46; margin:0;">✅ This QR Looks Safe</h3>
+                <p style="margin:8px 0 0 0; color:#064E3B;">We checked {len(problems)} security parameters. No major threats found.</p>
             </div>
             """, unsafe_allow_html=True)
-            st.link_button("✅ Open Safe Link", data)
-        
-        if issues:
-            st.markdown("### 🚩 Threats Found:")
-            for i in issues:
-                st.write(i)
-        
-        # Prevention Tips
-        st.markdown("---")
-        col1, col2, col3 = st.columns(3)
-        with col1: st.markdown('<div class="feature-box">🔒<br><b>HTTPS Check</b><br>Ensures encrypted</div>', unsafe_allow_html=True)
-        with col2: st.markdown('<div class="feature-box">🎭<br><b>Brand Check</b><br>Stops fake Paytm/Google</div>', unsafe_allow_html=True)
-        with col3: st.markdown('<div class="feature-box">⏱️<br><b>Before Visit Warning</b><br>Blocks before click</div>', unsafe_allow_html=True)
-    
-    elif uploaded:
-        st.error("❌ QR not readable. Use clear image of poster QR.")
-    else:
-        st.markdown("### ✨ How It Works")
-        st.markdown("""
-        1. **SCAN** - User scans QR from poster/event/payment
-        2. **EXTRACT** - URL extracted & decoded
-        3. **ANALYZE** - Checks blacklist, HTTPS, typosquatting, IP, length
-        4. **HIGHLIGHT** - Suspicious parts marked in red
-        5. **WARN** - Blocks unsafe site BEFORE user visits
-        """)
-        st.success("Ready for Live Demo - Upload any QR")
+            
+            if problems:
+                st.write("**Minor notes:**")
+                for p in problems:
+                    st.write(f"- {p['title']}: {p['desc']}")
+            
+            st.link_button("Open Link", qr_data, use_container_width=True)
 
-st.markdown("---")
-st.caption("QR Shield Pro | Built for CRYPTATHON 2026 Problem #3 | Prevents Poster, Event & Payment QR Frauds")
+else:
+    st.info("Please upload a QR code image to start the analysis.")
+    st.markdown("""
+    **How to test:**
+    - Upload a **Safe QR** (like https://google.com) -> Shows SAFE
+    - Upload a **Fake QR** (like http://free-offer.bit.ly@fake-payment.com) -> Shows exactly WHY it is fake
+    """)
+
+st.divider()
+st.caption("QR Shield • AI-powered QR fraud detection • Warns you BEFORE you visit")
